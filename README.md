@@ -96,11 +96,43 @@ $ python -m gamesfamily simulate          # 51,000 synthetic plans, seed 0
 - **The seat-randomized design does not.** It recovers about a third of the true effect, and its interval excludes the truth. Clustered standard errors do not fix this: the problem is bias, not variance.
 - **Every behavioural parameter in `simulate.Params` is an assumption.** The run shows how the estimators behave; it does not forecast NYT results.
 
+## Probing spillover first (`python -m gamesfamily spillover`)
+
+Before building any family-level paywall model, measure how much one seat's paywall changes outcomes for the other seats on the plan. Two probes do this (`spillover.py`):
+
+1. **Probe 1, exposure analysis on seat-randomized data.** If the always-on paywall experiment already randomizes Games Family seats independently, then how many co-members were treated is random within each plan. Compare untreated seats with 0, 1, 2 or 3 treated co-members, within plan size and with plan-clustered SEs. This needs no new experiment. Two things are **unverified**: whether Games Family seats are in that experiment, and whether `user_id` can be joined to `plan_id` in the logs.
+2. **Probe 2, randomized-saturation pilot.** Randomize plans to 0%, 50% or 100% of seats treated. Within 50% plans, also randomize which seats are treated. This separates direct, spillover and total effects with known assignment probabilities.
+
+Seed 0, 51k synthetic plans:
+
+```
+PROBE 1  untreated members, change in access vs 0 treated co-members:
+           k=1: +0.92 pp ±0.48   k=2: +1.94 pp ±0.65   k=3: +3.02 pp ±1.05
+         seat access regression: own treatment +0.83 pp, all co-members treated +1.43 pp
+         standalone purchase:    own −0.31 pp (the family offer displaces it)
+PROBE 2  estimand                 estimate (95% CI)            truth
+         spillover_at_half        +1.62 pp (+1.25 to +2.00)    +1.24 pp
+         total_at_all             +2.67 pp (+2.27 to +3.07)    +2.74 pp
+         plan_upgrade_all_vs_none +2.49 pp (+2.11 to +2.87)    +2.57 pp
+         direct_at_half           +0.03 pp (−0.07 to +0.12)    +0.01 pp
+```
+
+- **Spillover is large here.** An untreated member's access rises by about 1 pp for each treated co-member. It's roughly the same size as the effect of the seat's own treatment.
+- **For a shared outcome, a "direct effect" within the plan means nothing.** All seats on a plan get access together, so treated and untreated seats on the same plan can't differ. All of the effect shows up as spillover. This is why per-seat models trained on per-seat randomization miss it.
+- **The estimators are reliable.** Over 40 seeds, the probe-2 estimates are unbiased and their 95% intervals cover the truth about 95% of the time. Seed 0's `spillover_at_half` interval just misses its truth by chance.
+- **Use frequent outcomes on real data.** In the simulator, the only spillover channel is the plan upgrade. With real data, run both probes on outcomes that happen daily as well (paywall hits, reads, requests, Games plays). They answer in weeks, before upgrades accumulate.
+
+**Decision rule.**
+
+- **Spillover close to zero:** an equivalence test bounds it near zero. Then an individual-level model plus a plan-level upgrade outcome is probably enough.
+- **Spillover clearly non-zero:** randomize by plan, and model the plan on every seat's paywall or meter.
+
 ## Running it
 
 ```
 pip install -e '.[dev]'           # or: export PYTHONPATH=src
 python -m gamesfamily simulate --plans 51000 --seed 0
+python -m gamesfamily spillover --plans 51000 --seed 0
 python -m gamesfamily power --p0 0.02 --mde 0.005
 pytest
 ```
@@ -112,6 +144,7 @@ pytest
 | `src/gamesfamily/paywall.py` | Paywall decision service, member-request store, banner caps |
 | `src/gamesfamily/simulate.py` | Synthetic plans and potential outcomes (common random numbers, so the truth is exact) |
 | `src/gamesfamily/analysis.py` | Stratified difference in means with Neyman SEs; plan-clustered (CR1) seat-level regression; member-design diagnostics |
+| `src/gamesfamily/spillover.py` | Spillover probes: exposure analysis on seat-randomized data; randomized-saturation pilot with truths |
 | `src/gamesfamily/power.py` | Two-proportion sample size, MDE and design effect |
 
 ## Size needed

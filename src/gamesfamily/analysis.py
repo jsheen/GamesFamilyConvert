@@ -42,22 +42,25 @@ def stratified_diff(y: np.ndarray, treat: np.ndarray, ctrl: np.ndarray, strata: 
     return Estimate(est, var**0.5)
 
 
-def clustered_diff(y: np.ndarray, d: np.ndarray, cluster: np.ndarray) -> Estimate:
-    """OLS of y on [1, d] with CR1 standard errors clustered on ``cluster``."""
-    y = y.astype(float)
-    d = d.astype(float)
-    n = len(y)
-    X = np.column_stack([np.ones(n), d])
+def ols_clustered(y: np.ndarray, X: np.ndarray, cluster: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """OLS coefficients and CR1 covariance clustered on ``cluster``."""
+    y = np.asarray(y, dtype=float)
+    X = np.asarray(X, dtype=float)
+    n, k = X.shape
     XtX_inv = np.linalg.inv(X.T @ X)
     beta = XtX_inv @ X.T @ y
     e = y - X @ beta
     _, g = np.unique(cluster, return_inverse=True)
     G = g.max() + 1
-    s0 = np.bincount(g, weights=e, minlength=G)
-    s1 = np.bincount(g, weights=e * d, minlength=G)
-    scores = np.column_stack([s0, s1])
-    meat = scores.T @ scores
-    V = XtX_inv @ meat @ XtX_inv * (G / (G - 1)) * ((n - 1) / (n - 2))
+    scores = np.column_stack([np.bincount(g, weights=e * X[:, j], minlength=G) for j in range(k)])
+    V = XtX_inv @ (scores.T @ scores) @ XtX_inv * (G / (G - 1)) * ((n - 1) / (n - k))
+    return beta, V
+
+
+def clustered_diff(y: np.ndarray, d: np.ndarray, cluster: np.ndarray) -> Estimate:
+    """OLS of y on [1, d] with CR1 standard errors clustered on ``cluster``."""
+    X = np.column_stack([np.ones(len(y)), np.asarray(d, dtype=float)])
+    beta, V = ols_clustered(y, X, cluster)
     return Estimate(beta[1], V[1, 1] ** 0.5)
 
 
