@@ -127,6 +127,28 @@ PROBE 2  estimand                 estimate (95% CI)            truth
 - **Spillover close to zero:** an equivalence test bounds it near zero. Then an individual-level model plus a plan-level upgrade outcome is probably enough.
 - **Spillover clearly non-zero:** randomize by plan, and model the plan on every seat's paywall or meter.
 
+### How many plans a spillover pilot needs: about 2,000 to 9,000
+
+Sizing assumes 80% power and a two-sided 5% test. Standard errors are read off the simulator at 6k–51k plans; they scale as 1/√n.
+
+| Pilot measured on | Spillover to detect | Plans per arm | **Pilot size (0% vs 50%, 2 arms)** |
+|---|---|---|---|
+| Daily outcomes (reads, paywall hits, requests, plays) | 0.10 SD | ~1,000 | **~2,000** |
+| Daily outcomes | 0.05 SD | ~4,100 | ~8,200 |
+| Seat access / plan upgrade (~2% baseline) | 1.0 pp | ~4,400 | **~8,800** |
+
+For the rare outcomes in the last row, the rule is: plans per arm ≈ 17,000 × (0.51 / spillover in pp)². The spillover in the simulator is about 1.1–1.3 pp, so a pilot of about 9k plans would detect it.
+
+**Assumptions behind the daily-outcome rows:** 2.8 seats per plan, a within-plan correlation of 0.3, and about 55% of seats untreated in 50% plans.
+
+**If you add a 100% arm,** multiply the pilot size by 1.5 (for example ~13k plans at 1 pp).
+
+**Pilot plans come out of the ~51k the main test needs.** Ways to keep the main test intact:
+
+1. **Run probe 1 on the existing paywall experiment first.** It costs zero plans. Two things are unverified: whether Games Family seats are in that experiment, and whether `user_id` can be joined to `plan_id` in the logs.
+2. **Run a ~2k-plan pilot on daily outcomes, then re-randomize every plan for the main test.** Leave a washout gap, and stratify on pilot arm.
+3. **Fold the pilot into the main test.** The `owner_only` arm already measures spillover from owner to members. Adding a members-only arm would measure spillover from members to the owner.
+
 ## Running it
 
 ```
