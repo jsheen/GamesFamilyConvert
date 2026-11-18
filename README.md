@@ -208,10 +208,79 @@ The ~300,000 figure is this project's working assumption, not a reported number.
 
 The intro-price policy matters. If Games Family owners are eligible for an $8-per-4-weeks intro on All Access Family, year-1 revenue from an upgrade turns **negative**. Confirm this before reading any revenue result.
 
-## Next steps toward a real test
+## Path to production
 
-1. Verify the eligible base (Games Family plans with ≥2 seats), prices, intro eligibility, and whether app-store-billed owners can upgrade.
-2. Wire `PaywallService.decide()` into the paywall decision point, behind a feature flag keyed on the frozen plan-assignment table.
-3. Log every target paywall impression, including `holdout` ones as BAU exposures, with `plan_id`, role and arm.
-4. Pre-register the primary outcome (8-week plan upgrade) and the fixed-sequence tests (`whole_plan > holdout` → `owner_only > holdout` → `whole_plan > owner_only`). Count net revenue across every standalone subscription in the cluster.
-5. Guardrails: Games Family cancellations, members removed by owners, standalone cancellations in the cluster, and request-banner dismissals.
+There are five stages. Each answers a different question, and each has a rule for moving on. Pilots are not simply enlarged until something reaches significance: one test, sized in advance, makes the decision (stage 3).
+
+| # | Stage | Question it answers | Plans | Typical length |
+|---|---|---|---|---|
+| 1 | Offline | Is there a plausible effect, and what size of test does it need? | 0 (existing data) | 1–3 weeks |
+| 2 | Live small pilot | Does it work as built, and is there spillover? | ~2,000–9,000 | 2–4 weeks |
+| 3 | Full-power test | Should we ship it? | ~51,000 (17k per arm) | 8 weeks, plus a 26-week read |
+| 4 | Ramp to everyone | Is it safe at scale? | All eligible plans, in steps | 2–4 weeks |
+| 5 | Long-term holdout | Does the effect last, and what does it do to churn? | ~5% of plans, untreated | 6–12 months |
+
+### 1. Offline
+
+- **Verify the facts:**
+  - the eligible base (Games Family plans with ≥2 seats);
+  - prices and whether owners are eligible for the intro price;
+  - whether owners billed through Apple or Google can upgrade;
+  - whether `user_id` can be joined to `plan_id`.
+- **Probe 1:** run the exposure analysis (`spillover.py`) on the always-on paywall experiment's existing data, if Games Family seats are in it.
+- **Use past experiments** to set the baseline upgrade rate p₀ and a realistic MDE, then re-run `python -m gamesfamily power`.
+- **Wire up the service:** connect `PaywallService.decide()` to the paywall decision point, behind a feature flag keyed on the frozen plan-assignment table.
+- **Move on when:** the facts are verified, the eligible base is large enough for the chosen design (see "Size needed"), and the plumbing works in staging.
+
+### 2. Live small pilot
+
+- **Design:** randomized saturation, 0% vs 50% of seats (probe 2). Measure on daily outcomes: reads, paywall hits, requests, plays.
+- **Instrumentation checks:**
+  - every target paywall impression is logged with `plan_id`, role and arm, including `holdout` impressions as BAU exposures;
+  - arm sizes match the design (sample-ratio-mismatch test);
+  - pre-period balance holds (A/A check);
+  - request-banner caps are enforced.
+- **Move on when:** nothing is broken and no guardrail is breached.
+- **The spillover estimate picks the main design:**
+  - clearly non-zero → randomize by plan (the default here);
+  - bounded near zero by an equivalence test → a simpler design that randomizes seats individually may be enough.
+- **Before stage 3,** leave a washout gap, then re-randomize every plan, stratifying on pilot arm.
+
+### 3. Full-power test (the decision)
+
+- **Design:** plan-randomized `holdout` / `owner_only` / `whole_plan`, stratified and frozen.
+- **Pre-register before launch:**
+  - the primary outcome: plan upgrade within 8 weeks;
+  - the fixed sequence of tests: `whole_plan > holdout`, then `owner_only > holdout`, then `whole_plan > owner_only`;
+  - the analysis notebook.
+- **Net revenue** counts every standalone subscription held by anyone on the plan.
+- **Guardrails:**
+  - Games Family cancellations (non-inferiority margin +0.5 pp);
+  - members removed by owners;
+  - standalone cancellations within the plan;
+  - dismissals of the request banner;
+  - support tickets and app-store refunds.
+
+  Monitor them weekly, with stopping boundaries for harm only.
+- **Decision rule:** ship `whole_plan` if three things hold:
+  - the upgrade effect is greater than zero;
+  - 26-week net revenue is positive under the verified price policy;
+  - the guardrails pass.
+
+  Ship `owner_only` if the member channel adds nothing measurable. Iterate if upgrades rise but net revenue does not.
+
+### 4. Ramp to everyone
+
+- **Steps:** expose eligible plans at 10%, then 25%, then 50%, then 100%. Hold each step for at least a week, and check guardrails before each increase.
+- **Roll back** if any guardrail is breached. The feature flag must turn the policy off within minutes.
+- **The ramp is for risk, not measurement.** It catches bugs and effects that appear only at scale, for example when every owner gets requests at once.
+
+### 5. Long-term holdout
+
+- **Keep ~5% of eligible plans on the BAU paywall** for 6–12 months. Add new plans to it at the same rate.
+- **It measures what an 8-week test can't:**
+  - novelty effects wearing off;
+  - plan cancellation and churn;
+  - revenue over 12 months, once intro prices end;
+  - cannibalization of standalone subscriptions.
+- **Expect a smaller effect than in stage 3** (winner's curse, novelty). The holdout tells you how much smaller. Use it to check the stage-3 estimate and to set p₀ and the MDE for the next iteration, which then starts again at stage 1.
