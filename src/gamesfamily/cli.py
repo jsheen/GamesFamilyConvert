@@ -8,7 +8,7 @@ from dataclasses import replace
 from .analysis import Estimate, analyse_cluster, analyse_member
 from .assignment import assign_plans, assign_seats_bernoulli
 from .power import mde, n_per_arm
-from .simulate import Params, make_population, registered_user_report, true_effects
+from .simulate import Params, make_population, outcomes, registered_user_report, true_effects
 
 
 def _pp(x: float) -> str:
@@ -64,6 +64,49 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     print(f"   Control seat access, some treated co-member: {m['control_access_some_treated_comember']:.2%}  <- spillover")
 
 
+def cmd_spillover(args: argparse.Namespace) -> None:
+    import numpy as np
+
+    from . import spillover as sp
+
+    pop = make_population(replace(Params(), n_plans=args.plans), seed=args.seed)
+    print(f"Synthetic population: {pop.n_plans:,} plans, {pop.n_seats:,} seats (seed {args.seed}). "
+          "Parameters are assumptions.\n")
+
+    # Probe 1: seat-randomized data, as the always-on RCT would produce.
+    asg = assign_seats_bernoulli(pop.user_ids, salt=f"m{args.seed}")
+    treated = np.array([asg.arm_for(u).value == "whole_plan" for u in pop.user_ids])
+    o = outcomes(pop, treated)
+    access = o.seat_access.astype(float)
+    print("PROBE 1: exposure analysis on seat-randomized data (Bernoulli 0.5 per seat)")
+    print("  Untreated seats: change in All Access (via plan) vs 0 treated co-members")
+    for role in ("owner", "member"):
+        c = sp.spillover_curve(pop, treated, access, role)
+        cells = "   ".join(f"k={k}: {_pp(e.est)} ±{196 * e.se:.2f}" for k, e in c.by_k.items())
+        print(f"    untreated {role + 's':<7} (base {c.control_mean:.2%}, n={c.n_seats:,}): {cells}")
+    reg = sp.share_regression(pop, treated, access)
+    print(f"  Regression, seat access: own treatment {_fmt(reg['direct_none'])}")
+    print(f"                           all co-members treated (spillover) {_fmt(reg['spillover_full'])}")
+    sa = sp.share_regression(pop, treated, o.standalone.astype(float))
+    print(f"  Regression, standalone purchase: own {_fmt(sa['direct_none'])}")
+    print(f"                                   spillover {_fmt(sa['spillover_full'])}")
+    dose = sp.plan_dose_response(pop, treated, o.upgraded.astype(float))
+    print("  Plan upgrade vs # seats treated (vs 0): "
+          + "   ".join(f"{k}: {_pp(e.est)} ±{196 * e.se:.2f}" for k, e in dose.items()))
+
+    # Probe 2: randomized saturation pilot.
+    plan_arm = sp.assign_saturation(pop, salt=f"s{args.seed}")
+    half = sp.half_vector(pop, salt=f"h{args.seed}")
+    est = sp.analyse_saturation(pop, plan_arm, half)
+    truth = sp.saturation_truth(pop, half)
+    print("\nPROBE 2: randomized saturation pilot (plans: 0% / 50% / 100% of seats treated)")
+    print(f"  {'estimand':<28}{'estimate (95% CI)':<40}truth")
+    for key, e in est.items():
+        print(f"  {key:<28}{_fmt(e):<40}{_pp(truth[key])}")
+    print("\n  Seat access is shared by the plan, so the within-plan 'direct' contrast is ~0:")
+    print("  for a shared outcome, almost all of the effect shows up as spillover.")
+
+
 def cmd_power(args: argparse.Namespace) -> None:
     p0, d = args.p0, args.mde
     print(f"Plans per arm, p0={p0:.3f}, MDE={_pp(d)}: {n_per_arm(p0, p0 + d):,}")
@@ -79,6 +122,10 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--plans", type=int, default=51_000)
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(func=cmd_simulate)
+    sp_ = sub.add_parser("spillover", help="probe cluster-level spillover (exposure analysis + saturation pilot)")
+    sp_.add_argument("--plans", type=int, default=51_000)
+    sp_.add_argument("--seed", type=int, default=0)
+    sp_.set_defaults(func=cmd_spillover)
     p = sub.add_parser("power", help="plan-level sample size")
     p.add_argument("--p0", type=float, default=0.02)
     p.add_argument("--mde", type=float, default=0.005)
