@@ -1,0 +1,23 @@
+[project]
+name = "gamesfamily"
+version = "0.1.0"
+description = "Prototype: personalized paywall to convert NYT Games Family plans to All Access Family, randomized by plan (cluster) or by seat."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+gamesfamily = "gamesfamily.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
