@@ -1,4 +1,4 @@
-# gamesFamilyConvert
+# GamesFamilyConvert
 
 A prototype of **Plan 1** from the [NYT interference audit](https://github.com/jsheen/interferenceAudit/blob/main/examples/nyt/report.md), using **only a personalized paywall**: no email, push or in-app cards. The goal is to convert **Games Family** plans to **All Access Family**, with the plan (the cluster) as the unit of treatment.
 
